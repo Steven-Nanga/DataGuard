@@ -1,0 +1,173 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Quality Check Tool</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="mb-4">Data Quality Check Tool</h1>
+        
+        <div id="connection-form">
+            <h2>Database Connection</h2>
+            <form id="db-form">
+                <div class="mb-3">
+                    <label for="host" class="form-label">Host</label>
+                    <input type="text" class="form-control" id="host" required>
+                </div>
+                <div class="mb-3">
+                    <label for="port" class="form-label">Port</label>
+                    <input type="number" class="form-control" id="port" required>
+                </div>
+                <div class="mb-3">
+                    <label for="dbname" class="form-label">Database Name</label>
+                    <input type="text" class="form-control" id="dbname" required>
+                </div>
+                <div class="mb-3">
+                    <label for="user" class="form-label">User</label>
+                    <input type="text" class="form-control" id="user" required>
+                </div>
+                <div class="mb-3">
+                    <label for="password" class="form-label">Password</label>
+                    <input type="password" class="form-control" id="password" required>
+                </div>
+                <button type="submit" class="btn btn-primary">Connect</button>
+            </form>
+        </div>
+
+        <div id="table-selection" style="display: none;">
+            <h2 class="mt-4">Table Selection</h2>
+            <select id="table-select" class="form-select mb-3"></select>
+            <button id="get-columns" class="btn btn-primary">Get Columns</button>
+        </div>
+
+        <div id="column-selection" style="display: none;">
+            <h2 class="mt-4">Column Selection</h2>
+            <div id="column-checkboxes"></div>
+            <h3 class="mt-3">Checks</h3>
+            <div class="mb-3">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="null-check" checked>
+                    <label class="form-check-label" for="null-check">Null Check</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="numeric-distribution" checked>
+                    <label class="form-check-label" for="numeric-distribution">Numeric Distribution</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="inaccurate-data" checked>
+                    <label class="form-check-label" for="inaccurate-data">Inaccurate Data</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="data-variety" checked>
+                    <label class="form-check-label" for="data-variety">Data Variety</label>
+                </div>
+            </div>
+            <button id="run-checks" class="btn btn-primary">Run Checks</button>
+        </div>
+
+        <div id="results" class="mt-4" style="display: none;">
+            <h2>Results</h2>
+            <pre id="results-content"></pre>
+        </div>
+    </div>
+
+    <script>
+        $(document).ready(function() {
+            let dbConfig = {};
+
+            $('#db-form').submit(function(e) {
+                e.preventDefault();
+                dbConfig = {
+                    host: $('#host').val(),
+                    port: $('#port').val(),
+                    dbname: $('#dbname').val(),
+                    user: $('#user').val(),
+                    password: $('#password').val()
+                };
+
+                $.ajax({
+                    url: '/connect',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify(dbConfig),
+                    success: function(response) {
+                        $('#connection-form').hide();
+                        $('#table-selection').show();
+                        let tableSelect = $('#table-select');
+                        tableSelect.empty();
+                        response.tables.forEach(function(table) {
+                            tableSelect.append($('<option></option>').attr('value', table).text(table));
+                        });
+                    },
+                    error: function(xhr, status, error) {
+                        alert('Connection failed: ' + xhr.responseJSON.error);
+                    }
+                });
+            });
+
+            $('#get-columns').click(function() {
+                let selectedTable = $('#table-select').val();
+                $.ajax({
+                    url: '/get_columns',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({...dbConfig, table: selectedTable}),
+                    success: function(response) {
+                        $('#column-selection').show();
+                        let columnCheckboxes = $('#column-checkboxes');
+                        columnCheckboxes.empty();
+                        response.columns.forEach(function(column) {
+                            columnCheckboxes.append(`
+                                <div class="form-check">
+                                    <input class="form-check-input column-checkbox" type="checkbox" id="${column}" value="${column}">
+                                    <label class="form-check-label" for="${column}">${column}</label>
+                                </div>
+                            `);
+                        });
+                    },
+                    error: function(xhr, status, error) {
+                        alert('Failed to get columns: ' + xhr.responseJSON.error);
+                    }
+                });
+            });
+
+            $('#run-checks').click(function() {
+                let selectedColumns = $('.column-checkbox:checked').map(function() {
+                    return $(this).val();
+                }).get();
+
+                let checks = [];
+                if ($('#null-check').is(':checked')) checks.push('null_check');
+                if ($('#numeric-distribution').is(':checked')) checks.push('numeric_distribution');
+                if ($('#inaccurate-data').is(':checked')) checks.push('inaccurate_data');
+                if ($('#data-variety').is(':checked')) checks.push('data_variety');
+
+                $.ajax({
+                    url: '/check',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        ...dbConfig,
+                        table: $('#table-select').val(),
+                        columns: selectedColumns,
+                        checks: checks
+                    }),
+                    success: function(response) {
+                        $('#results').show();
+                        $('#results-content').text(JSON.stringify(response, null, 2));
+                    },
+                    error: function(xhr, status, error) {
+                        alert('Check failed: ' + xhr.responseJSON.error);
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>
